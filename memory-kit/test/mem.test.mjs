@@ -184,7 +184,8 @@ const fresh = () => { const d = mk(); initProject(d); return d }
 
 // 11. bilibili connector: parses the plugin ledger and groups it by day
 {
-  const { parseSeenTable, groupByDay } = await import('../connectors/import-bili.mjs')
+  const { parseSeenTable, groupByDay, entryTypeFor } = await import('../connectors/import-bili.mjs')
+  ok(entryTypeFor('bili') === 'video' && entryTypeFor('engineering') === 'fact', 'connector picked the wrong entry type per profile')
   const today = new Date().toISOString().slice(0, 10)
   const ledger = [
     '## Comment log',
@@ -206,6 +207,10 @@ const fresh = () => { const d = mk(); initProject(d); return d }
   ok(days.length === 1 && days[0].picked === 1 && days[0].skipped === 1, 'grouping wrong: ' + JSON.stringify(days.map((d) => [d.day, d.picked, d.skipped])))
   ok(days[0].title.includes(today) && days[0].body.includes('https://www.bilibili.com/video/BV1bbbbbbbbb'), 'entry body incomplete')
   ok(groupByDay(rows, 7).every((d) => d.day !== '2020-01-01'), '--since-days cutoff ignored')
+  // the plugin itself writes Chinese statuses — those must group the same way
+  const zh = parseSeenTable(`| ${today} | BV1eeeeeeeee | 中文状态 | UP主 | 挑了 |\n| ${today} | BV1fffffffff | 跳过的 | UP主 | 跳过（无字幕） |`)
+  const zhDays = groupByDay(zh, 7)
+  ok(zhDays.length === 1 && zhDays[0].picked === 1 && zhDays[0].skipped === 1, 'Chinese statuses not classified: ' + JSON.stringify(zhDays.map((d) => [d.picked, d.skipped])))
 }
 
 function throws(fn) {

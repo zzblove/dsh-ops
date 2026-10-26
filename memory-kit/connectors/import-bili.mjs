@@ -22,13 +22,21 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { addEntry, memoryDirOf } from '../scripts/mem.js'
+import { addEntry, memoryDirOf, profileOf } from '../scripts/mem.js'
 
 const argOf = (argv, name, dflt = '') => {
   const i = argv.indexOf('--' + name)
   return i >= 0 && argv[i + 1] !== undefined ? argv[i + 1] : dflt
 }
 const flagOn = (argv, name) => argv.includes('--' + name)
+
+/**
+ * Which entry type a daily round-up gets in a given profile.
+ * `bili` projects use `video` (video-level takeaways); engineering projects keep `fact`.
+ */
+export function entryTypeFor(profileName) {
+  return profileName === 'bili' ? 'video' : 'fact'
+}
 
 export const BVID = /BV[0-9A-Za-z]{10}/
 
@@ -54,8 +62,11 @@ export function parseSeenTable(text) {
   return rows
 }
 
-const isPicked = (status) => !/skip|skipped|not picked/i.test(status) && /pick|kept|watch|worth/i.test(status)
-const isSkipped = (status) => /skip|skipped|not picked/i.test(status)
+// The plugin writes Chinese statuses ("挑了" / "跳过（无字幕）"); older/other tools may use English.
+const SKIP_RE = /skip|skipped|not picked|跳过|跳了|没挑|未收/i
+const PICK_RE = /pick|kept|watch|worth|挑|收|选|值得看|可以看/i
+const isPicked = (status) => !SKIP_RE.test(status) && PICK_RE.test(status)
+const isSkipped = (status) => SKIP_RE.test(status)
 
 /** Group rows by day and render one memory entry body per day. */
 export function groupByDay(rows, sinceDays = 7) {
@@ -120,7 +131,7 @@ function main() {
       continue
     }
     const r = addEntry(memDir, {
-      type: 'fact',
+      type: entryTypeFor(profileOf(memDir).name),
       title: d.title,
       summary: d.summary,
       body: d.body,
