@@ -13,8 +13,10 @@
 
 ## 写（形成长期结论后立即落盘）
 
-- `fact` = 环境事实 · `decision` = 决策与理由（含被否方案）· `howto` = 真跑通的步骤 ·
-  `correction` = 用 `--supersedes` 更正旧条目。
+- 类型取决于项目的分类档案（`memory/.profile.json`）：
+  - `engineering`：`fact`（环境事实）· `decision`（决策与被否方案）· `howto`（真跑通的步骤）
+  - `bili`：`taste`（喜欢/讨厌什么、说话偏好）· `video`（某条视频的结论）· `talk`（对话里的结论或约定）· `creator`（UP 主/人）
+  - 两套都有：`correction`（用 `--supersedes` 更正旧条目，落在被更正条目旁边）
 - 一个主题一个文件，一律走 CLI（写锁、去重、索引都由它维护）：
 
   ```console

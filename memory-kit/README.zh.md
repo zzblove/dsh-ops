@@ -36,10 +36,28 @@ memory-kit/
 └─ .gitignore                  忽略 .index.json / .write.lock
 ```
 
+## 目录档案（profile）
+
+分类是 `init` 时选的**档案**，记在 `memory/.profile.json` 里；之后每条命令自动读它，
+所以同一个 CLI 能服务不同类型的项目。
+
+| 档案 | 目录 | 适合 |
+| --- | --- | --- |
+| `engineering`（默认） | `facts/` `decisions/` `howto/` | 代码仓库：环境事实、技术决策、操作步骤 |
+| `bili` | `taste/` `videos/` `talks/` `creators/` | 刷视频+聊天：口味偏好、视频结论、聊过的共识、UP 主 |
+
+```console
+node memory-kit/scripts/mem.js init D:\my-memory --profile bili
+# types: taste->taste  video->videos  talk->talks  creator->creators  correction->@target
+```
+
+`correction` 两套档案都收，并且**落在被更正条目所在的目录**（`@target`）。
+
 ## 快速开始
 
 ```console
 node memory-kit/scripts/mem.js init                       # 在当前目录铺（也可传目录）
+node memory-kit/scripts/mem.js init D:\bili-memory --profile bili
 node memory-kit/scripts/mem.js add --type fact --title "DSH 的 home" \
   --summary "默认在用户目录下" --body-file body.md --scope dsh
 node memory-kit/scripts/mem.js search "dsh home" -k 3
@@ -53,7 +71,7 @@ node memory-kit/scripts/mem.js doctor                     # 查元数据 / 索�
 
 | 命令 | 作用 |
 | --- | --- |
-| `init [目录]` | 幂等地铺一个记忆项目 |
+| `init [目录] [--profile engineering\|bili]` | 幂等地铺一个记忆项目（含分类档案） |
 | `add --type --title --summary --body-file` | 追加一条（带写锁、完全重复则复用）；`--scope`、`--source`、`--verified-at`、`--supersedes`（更正用） |
 | `search "<查询>" [-k N] [--include-outdated]` | 本地检索，输出路径 / 行区间 / 片段 |
 | `show <memory/...md> [--grep 词] [-C n] [--lines A-B]` | 回看原文；只允许读 `memory/` 下的条目 |

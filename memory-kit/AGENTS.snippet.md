@@ -16,8 +16,10 @@ derived cache. Any agent session reads and writes the same `memory/` directory.
 
 ## Write (when a durable conclusion forms)
 
-- `fact` = environment truth · `decision` = a choice plus rejected options · `howto` = steps that
-  actually worked · `correction` = rewrite of an earlier entry via `--supersedes`.
+- Types depend on the project's profile (`memory/.profile.json`):
+  - `engineering`: `fact` (environment truth) · `decision` (choice plus rejected options) · `howto` (steps that worked)
+  - `bili`: `taste` (likes/avoids, tone) · `video` (takeaway from one video) · `talk` (conclusion or promise from a conversation) · `creator` (uploaders/people)
+  - both: `correction` (rewrite an earlier entry via `--supersedes`; it lands next to the corrected entry)
 - One topic per file. Always go through the CLI so the write lock, dedupe and index stay consistent:
 
   ```console

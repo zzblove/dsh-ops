@@ -33,9 +33,63 @@ import {
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-export const VERSION = '1.0.0'
+export const VERSION = '1.1.0'
+
+/** Canonical type list of the default (engineering) profile, kept for compatibility. */
 export const TYPES = ['fact', 'decision', 'howto', 'correction']
-const SUBDIR = { fact: 'facts', decision: 'decisions', howto: 'howto', correction: 'facts' }
+
+/**
+ * Directory taxonomies. A memory project picks one at `init` time and records it
+ * in `memory/.profile.json`; every later command reads that file, so the same CLI
+ * serves different kinds of projects without renaming anything.
+ *
+ * `dir: '@target'` means "same directory as the entry being corrected".
+ */
+export const PROFILES = {
+  engineering: {
+    name: 'engineering',
+    title: 'Engineering memory',
+    types: {
+      fact: { dir: 'facts', hint: 'environment truth / verified current state' },
+      decision: { dir: 'decisions', hint: 'a choice with rationale and rejected options' },
+      howto: { dir: 'howto', hint: 'steps that actually worked' },
+      correction: { dir: '@target', hint: 'correct an existing entry via supersedes' },
+    },
+  },
+  bili: {
+    name: 'bili',
+    title: 'Watch-and-talk memory',
+    types: {
+      taste: { dir: 'taste', hint: 'what the user likes or avoids, tone and length preferences' },
+      video: { dir: 'videos', hint: 'takeaways from specific videos worth recalling later' },
+      talk: { dir: 'talks', hint: 'conclusions, decisions and promises made in conversation' },
+      creator: { dir: 'creators', hint: 'uploaders or people worth following or avoiding' },
+      correction: { dir: '@target', hint: 'correct an existing entry via supersedes' },
+    },
+  },
+}
+
+export const PROFILE_NAMES = Object.keys(PROFILES)
+
+/** Look a profile up by name (unknown names fall back to engineering). */
+export function profileByName(name) {
+  return PROFILES[String(name || '').trim()] || PROFILES.engineering
+}
+
+/** The profile a memory project was initialised with; defaults to engineering. */
+export function profileOf(memDir) {
+  try {
+    const j = JSON.parse(readFileSync(join(memDir, 'memory', '.profile.json'), 'utf8'))
+    if (j && PROFILES[j.profile]) return PROFILES[j.profile]
+  } catch { /* not initialised by this edition */ }
+  return PROFILES.engineering
+}
+
+/** Types valid for a project, in declaration order. */
+export function typesOf(memDir) {
+  return Object.keys(profileOf(memDir).types)
+}
+
 const INDEX_HEAD = '# Memory index\n\nAppend only; use mem.js add so the index and the write lock stay consistent.\n'
 
 export function memoryDirOf(env = process.env) {
@@ -272,8 +326,10 @@ function indexAppend(memDir, rel, title, summary) {
  * @returns {{ reused:boolean, rel:string, path:string }}
  */
 export function addEntry(memDir, { type, title, summary, body, scope = '', source = '', verifiedAt = '', supersedes = '', noDedupe = false }) {
+  const profile = profileOf(memDir)
   const t = String(type || '').trim()
-  if (!TYPES.includes(t)) throw new Error('type must be one of ' + TYPES.join(' / '))
+  const spec = profile.types[t]
+  if (!spec) throw new Error(`type must be one of ${Object.keys(profile.types).join(' / ')} (profile: ${profile.name})`)
   const cleanTitle = String(title || '').trim()
   const cleanSummary = String(summary || '').trim()
   if (!cleanTitle || !cleanSummary || cleanSummary.includes('\n')) throw new Error('title and summary must be non-empty single lines')
@@ -304,8 +360,11 @@ export function addEntry(memDir, { type, title, summary, body, scope = '', sourc
     }
     const targetRel = supersedes ? String(supersedes).replace(/\\/g, '/').replace(/^\.\//, '') : ''
     if (targetRel && !docs.has(targetRel)) throw new Error('entry to correct does not exist: ' + targetRel)
+    // `@target` keeps a correction next to the entry it corrects
+    const fallbackDir = Object.values(profile.types).map((x) => x.dir).find((d) => d !== '@target') || 'facts'
+    const dir = spec.dir === '@target' ? (targetRel.split('/')[1] || fallbackDir) : spec.dir
     const st = nowStamp()
-    const rel = `memory/${SUBDIR[t]}/${st.name}-${slugOf(finalTitle)}-${randomUUID().slice(0, 8)}.md`
+    const rel = `memory/${dir}/${st.name}-${slugOf(finalTitle)}-${randomUUID().slice(0, 8)}.md`
     const path = join(memDir, rel.split('/').join(sep))
     const meta = [
       '---',
@@ -400,6 +459,7 @@ export function doctor(memDir) {
 }
 
 export function stats(memDir) {
+  const profile = profileOf(memDir)
   const docs = [...loadDocs(memDir).values()]
   const byType = {}
   const byStatus = {}
@@ -413,7 +473,7 @@ export function stats(memDir) {
   try {
     indexEntries = readFileSync(indexPath(memDir), 'utf8').split('\n').filter((l) => l.trim().startsWith('- ')).length
   } catch { /* no index yet */ }
-  return { version: VERSION, files: docs.length, byType, byStatus, indexEntries }
+  return { version: VERSION, profile: profile.name, files: docs.length, byType, byStatus, indexEntries }
 }
 
 export function outdated(memDir, months = 6) {
@@ -427,15 +487,21 @@ export function outdated(memDir, months = 6) {
   return rows
 }
 
-/** Idempotently scaffold a memory project. */
-export function initProject(target) {
+/** Idempotently scaffold a memory project with the given directory profile. */
+export function initProject(target, { profile = 'engineering' } = {}) {
+  const p = profileByName(profile)
   const root = resolve(target)
   mkdirSync(join(root, 'memory'), { recursive: true })
-  for (const sub of ['facts', 'decisions', 'howto']) mkdirSync(join(root, 'memory', sub), { recursive: true })
+  for (const spec of Object.values(p.types)) {
+    if (spec.dir === '@target') continue
+    mkdirSync(join(root, 'memory', spec.dir), { recursive: true })
+  }
   const idx = indexPath(root)
   if (!existsSync(idx)) writeFileSync(idx, INDEX_HEAD, 'utf8')
+  // remember the taxonomy so later commands do not need the flag again
+  writeFileSync(join(root, 'memory', '.profile.json'), JSON.stringify({ profile: p.name, version: VERSION }, null, 2) + '\n', 'utf8')
   const ignore = join(root, '.gitignore')
-  const rules = ['.index.json', '.index.sqlite', '.index.sqlite-wal', '.index.sqlite-shm', '.write.lock']
+  const rules = ['.index.json', '.index.sqlite', '.index.sqlite-wal', '.index.sqlite-shm', '.write.lock', 'memory/.profile.json']
   const cur = existsSync(ignore) ? readFileSync(ignore, 'utf8') : ''
   const missing = rules.filter((r) => !cur.split('\n').includes(r))
   if (missing.length) appendFileSync(ignore, (cur && !cur.endsWith('\n') ? '\n' : '') + missing.join('\n') + '\n', 'utf8')
@@ -465,18 +531,36 @@ export function main(argv = process.argv.slice(2)) {
 
   if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
     out(`memory-kit ${VERSION} (DSH edition, Node only, local retrieval)\n\n` +
-      '  init [dir]                        scaffold a memory project (default: cwd)\n' +
+      '  init [dir] [--profile engineering|bili]   scaffold a memory project (default: cwd, engineering)\n' +
       '  add --type --title --summary --body-file [--scope --source --verified-at --supersedes]\n' +
       '  search "<query>" [-k 3] [--include-outdated]\n' +
       '  show <memory/...md> [--grep term] [-C 2] [--lines A-B]\n' +
       '  reindex                            rebuild the index cache and fill index.md\n' +
       '  doctor | stats | outdated [--months 6]\n\n' +
-      `memory dir: ${memDir}`)
+      `profiles: ${PROFILE_NAMES.join(', ')}\n` +
+      `memory dir: ${memDir} (profile ${profileOf(memDir).name})`)
     return 0
   }
   if (cmd === 'init') {
-    const root = initProject(rest[0] || process.cwd())
-    out(`initialized: ${root} (memory-kit ${VERSION})\nnext: node memory-kit/scripts/mem.js reindex`)
+    const profileName = argOf(argv, 'profile', 'engineering')
+    if (!PROFILES[profileName]) {
+      out(`unknown profile: ${profileName} (available: ${PROFILE_NAMES.join(', ')})`)
+      return 2
+    }
+    // first positional that is not a flag (nor the value of a `--flag value` pair)
+    const positional = []
+    for (let i = 0; i < rest.length; i++) {
+      const a = rest[i]
+      if (a.startsWith('--')) { if (!a.includes('=')) i++; continue }
+      if (a.startsWith('-')) continue
+      positional.push(a)
+    }
+    // `--dir X init` means "initialise X"; an explicit positional still wins
+    const root = initProject(positional[0] || (dirFlag ? resolve(dirFlag) : process.cwd()), { profile: profileName })
+    const p = profileByName(profileName)
+    out(`initialized: ${root} (profile ${p.name}, memory-kit ${VERSION})`)
+    out('types: ' + Object.entries(p.types).map(([k, v]) => `${k}->${v.dir}`).join('  '))
+    out('next: node memory-kit/scripts/mem.js reindex')
     return 0
   }
   if (cmd === 'add') {
@@ -547,7 +631,7 @@ export function main(argv = process.argv.slice(2)) {
   }
   if (cmd === 'stats') {
     const s = stats(memDir)
-    out(`memory-kit ${VERSION}: ${s.files} memory file(s), ${s.indexEntries} index entr(y/ies)`)
+    out(`memory-kit ${VERSION} (profile ${s.profile}): ${s.files} memory file(s), ${s.indexEntries} index entr(y/ies)`)
     out('types: ' + Object.entries(s.byType).map(([k, v]) => `${k}=${v}`).join(' '))
     out('status: ' + Object.entries(s.byStatus).map(([k, v]) => `${k}=${v}`).join(' '))
     return 0

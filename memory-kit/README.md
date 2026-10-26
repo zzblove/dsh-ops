@@ -36,10 +36,28 @@ A memory project itself is just:
 └─ .gitignore                  ignores .index.json / .write.lock
 ```
 
+## Directory profiles
+
+The directory taxonomy is a **profile** chosen at `init` time and recorded in `memory/.profile.json`;
+every later command reads it, so one CLI serves different kinds of projects.
+
+| Profile | Directories | Use it for |
+| --- | --- | --- |
+| `engineering` (default) | `facts/` `decisions/` `howto/` | code repositories: environment truth, decisions, procedures |
+| `bili` | `taste/` `videos/` `talks/` `creators/` | watch-and-chat projects: preferences, video takeaways, conversation conclusions, uploaders |
+
+```console
+node memory-kit/scripts/mem.js init D:\my-memory --profile bili
+# types: taste->taste  video->videos  talk->talks  creator->creators  correction->@target
+```
+
+`correction` is accepted by both profiles and lands **next to the entry it corrects** (`@target`).
+
 ## Quick start
 
 ```console
 node memory-kit/scripts/mem.js init                       # scaffold ./ (or pass a directory)
+node memory-kit/scripts/mem.js init D:\bili-memory --profile bili
 node memory-kit/scripts/mem.js add --type fact --title "DSH home" \
   --summary "under the user home by default" --body-file body.md --scope dsh
 node memory-kit/scripts/mem.js search "dsh home" -k 3
@@ -54,7 +72,7 @@ anywhere on the command line.
 
 | Command | Purpose |
 | --- | --- |
-| `init [dir]` | idempotently scaffold a memory project |
+| `init [dir] [--profile engineering\|bili]` | idempotently scaffold a memory project with a taxonomy |
 | `add --type --title --summary --body-file` | append an entry (write-locked, deduplicated); `--scope`, `--source`, `--verified-at`, `--supersedes` (corrections) |
 | `search "<query>" [-k N] [--include-outdated]` | local keyword retrieval; prints candidates with path, line range and excerpt |
 | `show <memory/...md> [--grep t] [-C n] [--lines A-B]` | read the original; only paths under `memory/` are allowed |

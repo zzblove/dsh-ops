@@ -144,6 +144,38 @@ const fresh = () => { const d = mk(); initProject(d); return d }
   ok(memoryDirOf({ MEMORY_DIR: d }) === d, 'MEMORY_DIR override ignored')
 }
 
+// 12. directory profiles: the same CLI serves a different taxonomy per project
+{
+  const { profileOf, typesOf, PROFILES, profileByName } = await import('../scripts/mem.js')
+  const eng = fresh()
+  ok(profileOf(eng).name === 'engineering', 'project without .profile.json should default to engineering')
+  ok(typesOf(eng).join(',') === 'fact,decision,howto,correction', 'engineering types changed: ' + typesOf(eng).join(','))
+
+  const bili = mk()
+  initProject(bili, { profile: 'bili' })
+  ok(profileOf(bili).name === 'bili', '.profile.json not honoured')
+  ok(typesOf(bili).join(',') === 'taste,video,talk,creator,correction', 'bili types wrong: ' + typesOf(bili).join(','))
+  for (const dir of ['taste', 'videos', 'talks', 'creators']) {
+    ok(existsSync(join(bili, 'memory', dir)), `bili profile did not create memory/${dir}`)
+  }
+  ok(!existsSync(join(bili, 'memory', 'facts')), 'bili profile should not create engineering dirs')
+
+  const t1 = addEntry(bili, { type: 'taste', title: 'Prefers short videos', summary: 'under 30 minutes', body: 'The user skips anything longer than 30 minutes.' })
+  ok(t1.rel.startsWith('memory/taste/'), 'taste entry landed in the wrong dir: ' + t1.rel)
+  const v1 = addEntry(bili, { type: 'video', title: 'BV1xx takeaway', summary: 'worth a rewatch', body: 'Explains the flaky test root cause.' })
+  ok(v1.rel.startsWith('memory/videos/'), 'video entry landed in the wrong dir: ' + v1.rel)
+  const c1 = addEntry(bili, { type: 'correction', title: 'BV1xx takeaway was wrong', summary: 'not worth a rewatch', body: 'The root cause was actually the cache.', supersedes: v1.rel })
+  ok(c1.rel.startsWith('memory/videos/'), '@target correction should sit next to the corrected entry: ' + c1.rel)
+  ok(throws(() => addEntry(bili, { type: 'fact', title: 'x', summary: 'y', body: 'z' })), 'bili project accepted an engineering type')
+  try { addEntry(bili, { type: 'fact', title: 'x', summary: 'y', body: 'z' }) } catch (e) {
+    ok(/taste \/ video \/ talk \/ creator \/ correction/.test(String(e.message)), 'error message should list the profile types: ' + e.message)
+  }
+  ok(throws(() => addEntry(eng, { type: 'taste', title: 'x', summary: 'y', body: 'z' })), 'engineering project accepted a bili type')
+  ok(PROFILES.bili.types.correction.dir === '@target', 'bili correction should be @target')
+  ok(profileByName('nope').name === 'engineering', 'unknown profile should fall back to engineering')
+  ok(stats(bili).profile === 'bili', 'stats should report the profile')
+}
+
 // 10. constants
 {
   ok(TYPES.join(',') === 'fact,decision,howto,correction', 'type list changed')
