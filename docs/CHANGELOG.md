@@ -7,6 +7,8 @@ this package adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Add `memory-kit/`, a Node-only edition of the Markdown project memory protocol (`search`/`show`/`add`/`reindex`/`doctor`/`stats`/`outdated`) with a local keyword retriever, a write lock, dedupe, corrections, and a connector that imports the `dsh-bili-scroll` watched-video ledger into one entry per day. The directory layout, frontmatter and `index.md` format stay compatible with the Python edition.
+- 新增 `memory-kit/`：Markdown 项目共享记忆协议的纯 Node 版（`search`/`show`/`add`/`reindex`/`doctor`/`stats`/`outdated`），含本地关键词检索、写锁、去重、更正，以及把 dsh-bili-scroll 看过视频的账本按天导入记忆的连接器。目录结构、frontmatter 与 `index.md` 格式与 Python 版保持兼容。
 - Add candidate-only benchmark component switches with conservative patch editing, composed-config verification and a bounded readiness turn. Archive effective switches, show them in reports, and reject comparisons across different candidate switch sets (#296).
 - 为 benchmark 增加仅作用于 candidate 的组件开关，保守编辑补丁并核验合成配置及有时限的就绪 turn；归档实际开关、在报告中展示，并拒绝不同 candidate 开关集的混配（#296）。
 
