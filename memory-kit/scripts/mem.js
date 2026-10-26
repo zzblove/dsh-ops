@@ -28,7 +28,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync,
+  appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync,
 } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -498,6 +498,13 @@ export function initProject(target, { profile = 'engineering' } = {}) {
   }
   const idx = indexPath(root)
   if (!existsSync(idx)) writeFileSync(idx, INDEX_HEAD, 'utf8')
+  // ship the CLI into the project so it is self-contained (the Python edition copies mem.py the same way)
+  const self = fileURLToPath(import.meta.url)
+  const dest = join(root, 'scripts', 'mem.js')
+  try {
+    mkdirSync(dirname(dest), { recursive: true })
+    if (resolve(self) !== resolve(dest)) copyFileSync(self, dest)
+  } catch { /* read-only target: the project can still reference this copy */ }
   // remember the taxonomy so later commands do not need the flag again
   writeFileSync(join(root, 'memory', '.profile.json'), JSON.stringify({ profile: p.name, version: VERSION }, null, 2) + '\n', 'utf8')
   const ignore = join(root, '.gitignore')
@@ -587,7 +594,8 @@ export function main(argv = process.argv.slice(2)) {
   }
   if (cmd === 'search') {
     const q = rest.filter((a) => !a.startsWith('-'))[0] || ''
-    const hits = search(memDir, q, { k: Number(argOf(argv, 'k', '3')) || 3, includeOutdated: flagOn(argv, 'include-outdated') })
+    const shortK = argv.indexOf('-k') >= 0 ? argv[argv.indexOf('-k') + 1] : ''
+    const hits = search(memDir, q, { k: Number(shortK || argOf(argv, 'k', '3')) || 3, includeOutdated: flagOn(argv, 'include-outdated') })
     out(renderSearch(q, hits))
     return 0
   }
