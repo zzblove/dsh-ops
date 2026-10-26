@@ -108,6 +108,9 @@ anywhere on the command line.
   supersedes`.
 - **`index.md` is append-only**; `add` appends the index line under the same write lock, so readers
   never see a half-written state.
+- **Confidence**: every entry records `confidence: stated | inferred`. `stated` (default) means the user
+  said it; `inferred` marks something the agent derived. Search output flags inferred entries and they
+  must never be presented as user statements.
 - **Dedupe**: byte-identical active entries are reused instead of duplicated.
 - **Corrections** flip the old entry to `status: outdated` and keep its body and date intact.
 - Never store secrets, credentials, or temporary debugging output.

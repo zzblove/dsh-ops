@@ -104,6 +104,8 @@ node memory-kit/scripts/mem.js doctor                     # 查元数据 / 索�
 - **一个主题一个文件**，命名 `YYYY-MM-DD-HHMM-<标题slug>-<随机8位>.md`，frontmatter 含
   `date / created_at / status / type / summary`，可选 `scope / source / verified_at / supersedes`。
 - **`index.md` 只追加**：`add` 在同一把写锁里写索引行，读的人不会看到半截状态。
+- **可信度**：每条记忆都带 `confidence: stated | inferred`。`stated`（默认）= 用户明确说过；
+  `inferred` = agent 自己推断的。检索输出会把推断内容标出来，**不能当成用户说过的话**引用。
 - **去重**：完全相同的有效条目直接复用，不新增文件。
 - **更正**：把旧条目标成 `status: outdated`，**保留正文与原日期**。
 - 禁止记录密钥、账号、临时调试信息。

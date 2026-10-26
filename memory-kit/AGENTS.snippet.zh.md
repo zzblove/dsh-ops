@@ -21,9 +21,12 @@
 
   ```console
   node memory-kit/scripts/mem.js add --type fact --title "<主题>" \
-    --summary "<一句话>" --body-file body.md --scope <范围> --source "<依据>"
+    --summary "<一句话>" --body-file body.md --scope "<范围>" --source "<依据>" \
+    [--confidence stated|inferred]
   ```
 
+- **标明可信度**：`--confidence stated`（默认）= 用户明确说过；`--confidence inferred` = 你自己推断的。
+  推断出来的记忆会在检索结果里被标出来，引用时必须说明是猜测，**绝不能当成用户说过的话**。
 - 写完执行 `node memory-kit/scripts/mem.js reindex`。
 - 禁止记录密钥、账号、临时调试信息，以及代码里直接可见的内容；不要把整段会话日志抄进记忆。
 

@@ -76,6 +76,22 @@ const fresh = () => { const d = mk(); initProject(d); return d }
   ok(before.includes('updated: '), 'old entry has no updated stamp')
 }
 
+// 4b. confidence: stated by default, inferred is written and surfaced in search
+{
+  const d = fresh()
+  const stated = addEntry(d, { type: 'fact', title: 'Stated thing', summary: 'user said so', body: 'body' })
+  ok(readFileSync(stated.path, 'utf8').includes('confidence: "stated"'), 'stated confidence not written by default')
+  const inferred = addEntry(d, { type: 'fact', title: 'Inferred thing', summary: 'we guessed', body: 'body', confidence: 'inferred' })
+  ok(readFileSync(inferred.path, 'utf8').includes('confidence: "inferred"'), 'inferred confidence not written')
+  const hits = search(d, 'Inferred thing', { k: 2 })
+  ok(hits.length >= 1, 'inferred entry not searchable')
+  const rendered = renderSearch('Inferred thing', hits)
+  ok(rendered.includes('confidence: inferred'), 'search output does not warn about inferred memory')
+  const statedHits = search(d, 'Stated thing', { k: 1 })
+  ok(!renderSearch('Stated thing', statedHits).includes('confidence:'), 'stated memory should not be flagged')
+  ok(throws(() => addEntry(d, { type: 'fact', title: 'Bad', summary: 's', body: 'b', confidence: 'maybe' })), 'invalid confidence accepted')
+}
+
 // 5. retrieval: CJK + ASCII, outdated exclusion, k cap, empty result wording
 {
   const d = fresh()

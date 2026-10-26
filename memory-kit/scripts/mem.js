@@ -36,7 +36,7 @@ import {
   semanticConfig, semanticSearch, buildVectors, loadVectorCache, hasApiKey, SemanticUnavailable,
 } from './semantic.mjs'
 
-export const VERSION = '1.2.0'
+export const VERSION = '1.3.0'
 
 /** Canonical type list of the default (engineering) profile, kept for compatibility. */
 export const TYPES = ['fact', 'decision', 'howto', 'correction']
@@ -253,6 +253,10 @@ export function renderSearch(query, hits, via = 'keyword') {
   const blocks = hits.map((h, i) => {
     const d = h.doc
     const bits = [`[${i + 1}] ${d.meta.date || ''} [${d.meta.status || 'active'}] score=${h.score.toFixed(3)}  ${d.rel}  lines ${h.lines}`]
+    // ⭐ 1.3.0：推断出来的内容必须能被一眼看出，别让模型当成"用户说过"
+    if (String(d.meta.confidence || 'stated') === 'inferred') {
+      bits.push('    confidence: inferred（推断得来，不是用户明确说过 —— 引用时要说明是猜测）')
+    }
     if (d.meta.scope) bits.push(`    scope: ${d.meta.scope}`)
     if (d.meta.verified_at) bits.push(`    verified: ${d.meta.verified_at}`)
     if (d.meta.source) bits.push(`    source: ${d.meta.source}`)
@@ -308,9 +312,12 @@ const nowStamp = (d = new Date()) => {
 
 const slugOf = (title) => String(title).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/^[ .]+|[ .]+$/g, '').slice(0, 70) || 'memory'
 
-function identityOf({ type, title, summary, body, scope, source, verifiedAt, supersedes }) {
+/** Confidence levels: `stated` = the user said it; `inferred` = we derived it. */
+export const CONFIDENCE = ['stated', 'inferred']
+
+function identityOf({ type, title, summary, body, scope, source, verifiedAt, supersedes, confidence }) {
   return createHash('sha256')
-    .update(JSON.stringify([type, title, summary, String(body || '').trim(), scope, source, verifiedAt, supersedes || '']))
+    .update(JSON.stringify([type, title, summary, String(body || '').trim(), scope, source, verifiedAt, supersedes || '', confidence || '']))
     .digest('hex')
 }
 
@@ -329,11 +336,13 @@ function indexAppend(memDir, rel, title, summary) {
  * Append one memory entry (write-locked; byte-identical duplicates are reused).
  * @returns {{ reused:boolean, rel:string, path:string }}
  */
-export function addEntry(memDir, { type, title, summary, body, scope = '', source = '', verifiedAt = '', supersedes = '', noDedupe = false }) {
+export function addEntry(memDir, { type, title, summary, body, scope = '', source = '', verifiedAt = '', supersedes = '', noDedupe = false, confidence = 'stated' }) {
   const profile = profileOf(memDir)
   const t = String(type || '').trim()
   const spec = profile.types[t]
   if (!spec) throw new Error(`type must be one of ${Object.keys(profile.types).join(' / ')} (profile: ${profile.name})`)
+  const conf = String(confidence || 'stated').trim().toLowerCase()
+  if (!CONFIDENCE.includes(conf)) throw new Error(`confidence must be one of ${CONFIDENCE.join(' / ')}`)
   const cleanTitle = String(title || '').trim()
   const cleanSummary = String(summary || '').trim()
   if (!cleanTitle || !cleanSummary || cleanSummary.includes('\n')) throw new Error('title and summary must be non-empty single lines')
@@ -342,7 +351,7 @@ export function addEntry(memDir, { type, title, summary, body, scope = '', sourc
   const cleanBody = String(body || '').replace(/\r\n/g, '\n').trim()
   if (!cleanBody) throw new Error('body must not be empty')
   const finalTitle = t === 'correction' && !cleanTitle.startsWith('Correction:') ? 'Correction: ' + cleanTitle : cleanTitle
-  const identity = identityOf({ type: t, title: finalTitle, summary: cleanSummary, body: cleanBody, scope, source, verifiedAt, supersedes })
+  const identity = identityOf({ type: t, title: finalTitle, summary: cleanSummary, body: cleanBody, scope, source, verifiedAt, supersedes, confidence: conf })
 
   return withLock(memDir, () => {
     const docs = loadDocs(memDir)
@@ -358,6 +367,7 @@ export function addEntry(memDir, { type, title, summary, body, scope = '', sourc
           source: d.meta.source || '',
           verifiedAt: d.meta.verified_at || '',
           supersedes: Array.isArray(d.meta.supersedes) ? d.meta.supersedes[0] : (d.meta.supersedes || ''),
+          confidence: d.meta.confidence || 'stated',
         })
         if (previous === identity) return { reused: true, rel: d.rel, path: d.path }
       }
@@ -377,6 +387,7 @@ export function addEntry(memDir, { type, title, summary, body, scope = '', sourc
       'status: active',
       `type: ${t}`,
       `summary: ${JSON.stringify(cleanSummary)}`,
+      `confidence: ${JSON.stringify(conf)}`,
       ...(scope ? [`scope: ${JSON.stringify(scope)}`] : []),
       ...(source ? [`source: ${JSON.stringify(source)}`] : []),
       ...(verifiedAt ? [`verified_at: ${JSON.stringify(verifiedAt)}`] : []),
@@ -441,6 +452,9 @@ export function doctor(memDir) {
     if (!d.meta.date) issues.push(`${d.rel}: frontmatter has no date`)
     if (!d.meta.summary) issues.push(`${d.rel}: frontmatter has no summary`)
     if (!d.meta.type) issues.push(`${d.rel}: frontmatter has no type`)
+    if (d.meta.confidence && !CONFIDENCE.includes(String(d.meta.confidence))) {
+      issues.push(`${d.rel}: confidence 只能是 ${CONFIDENCE.join(' / ')}（现在是 ${d.meta.confidence}）`)
+    }
     const key = String(d.title).trim()
     if (key) {
       if (titles.has(key)) issues.push(`${d.rel}: duplicate title of ${titles.get(key)}`)
@@ -551,7 +565,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
     out(`memory-kit ${VERSION} (DSH edition, Node only, local retrieval)\n\n` +
       '  init [dir] [--profile engineering|bili]   scaffold a memory project (default: cwd, engineering)\n' +
-      '  add --type --title --summary --body-file [--scope --source --verified-at --supersedes]\n' +
+      '  add --type --title --summary --body-file [--scope --source --verified-at --supersedes] [--confidence stated|inferred]\n' +
       '  search "<query>" [-k 3] [--include-outdated]\n' +
       '  show <memory/...md> [--grep term] [-C 2] [--lines A-B]\n' +
       '  reindex                            rebuild the index cache and fill index.md\n' +
@@ -596,6 +610,7 @@ export async function main(argv = process.argv.slice(2)) {
         verifiedAt: argOf(argv, 'verified-at'),
         supersedes: argOf(argv, 'supersedes'),
         noDedupe: flagOn(argv, 'no-dedupe'),
+        confidence: argOf(argv, 'confidence', 'stated'),
       })
       out((r.reused ? 'reused existing: ' : 'saved: ') + r.rel)
       return 0

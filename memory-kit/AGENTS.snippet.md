@@ -24,9 +24,13 @@ derived cache. Any agent session reads and writes the same `memory/` directory.
 
   ```console
   node memory-kit/scripts/mem.js add --type fact --title "<topic>" \
-    --summary "<one line>" --body-file body.md --scope <area> --source "<evidence>"
+    --summary "<one line>" --body-file body.md --scope <area> --source "<evidence>" \
+    [--confidence stated|inferred]
   ```
 
+- **State the confidence**: `--confidence stated` (default) means the user said it; use
+  `--confidence inferred` for anything you derived yourself. Inferred memory is flagged in search output
+  and must be presented as a guess, never as something the user said.
 - Re-run `node memory-kit/scripts/mem.js reindex` afterwards.
 - Never store secrets, credentials, temporary debugging output, or anything already obvious from the
   code. Do not copy a whole session log into memory.
