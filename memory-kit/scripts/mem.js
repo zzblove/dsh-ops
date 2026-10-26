@@ -502,12 +502,20 @@ export function initProject(target, { profile = 'engineering' } = {}) {
   }
   const idx = indexPath(root)
   if (!existsSync(idx)) writeFileSync(idx, INDEX_HEAD, 'utf8')
-  // ship the CLI into the project so it is self-contained (the Python edition copies mem.py the same way)
-  const self = fileURLToPath(import.meta.url)
-  const dest = join(root, 'scripts', 'mem.js')
+  // Ship the CLI (and every sibling module it imports) into the project so it is self-contained —
+  // the Python edition copies mem.py the same way, and mem.js >= 1.2 needs semantic.mjs next to it.
+  const scriptDir = dirname(fileURLToPath(import.meta.url))
+  const destDir = join(root, 'scripts')
   try {
-    mkdirSync(dirname(dest), { recursive: true })
-    if (resolve(self) !== resolve(dest)) copyFileSync(self, dest)
+    mkdirSync(destDir, { recursive: true })
+    for (const f of readdirSync(scriptDir)) {
+      // the entry point is mem.js (`.js`); helpers such as semantic.mjs use `.mjs`
+      if (f !== 'mem.js' && !f.endsWith('.mjs')) continue
+      const src = join(scriptDir, f)
+      const dst = join(destDir, f)
+      if (resolve(src) === resolve(dst)) continue
+      copyFileSync(src, dst)
+    }
   } catch { /* read-only target: the project can still reference this copy */ }
   // remember the taxonomy so later commands do not need the flag again
   writeFileSync(join(root, 'memory', '.profile.json'), JSON.stringify({ profile: p.name, version: VERSION }, null, 2) + '\n', 'utf8')

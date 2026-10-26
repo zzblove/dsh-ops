@@ -34,6 +34,9 @@ const fresh = () => { const d = mk(); initProject(d); return d }
   ok(readFileSync(indexPath(d), 'utf8').startsWith('# Memory index'), 'index.md header wrong')
   const gi = readFileSync(join(d, '.gitignore'), 'utf8')
   ok(gi.includes('.write.lock') && gi.includes('.index.json'), '.gitignore misses derived files')
+  // a scaffolded project must be self-contained: the CLI *and* every module it imports
+  ok(existsSync(join(d, 'scripts', 'mem.js')), 'init did not ship scripts/mem.js')
+  ok(existsSync(join(d, 'scripts', 'semantic.mjs')), 'init did not ship scripts/semantic.mjs (mem.js >=1.2 imports it)')
   initProject(d)
   ok(gi.trim().split('\n').length === readFileSync(join(d, '.gitignore'), 'utf8').trim().split('\n').length,
     'initProject is not idempotent (.gitignore appended twice)')
