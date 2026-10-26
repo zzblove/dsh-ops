@@ -32,8 +32,11 @@ import {
 } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import {
+  semanticConfig, semanticSearch, buildVectors, loadVectorCache, hasApiKey, SemanticUnavailable,
+} from './semantic.mjs'
 
-export const VERSION = '1.1.0'
+export const VERSION = '1.2.0'
 
 /** Canonical type list of the default (engineering) profile, kept for compatibility. */
 export const TYPES = ['fact', 'decision', 'howto', 'correction']
@@ -214,7 +217,7 @@ export function hitLines(doc, terms) {
   return a + '-' + b
 }
 
-function snippetOf(doc, terms, max = 120) {
+export function snippetOf(doc, terms, max = 120) {
   const body = String(doc.body || '').replace(/\s+/g, ' ').trim()
   const low = body.toLowerCase()
   let at = -1
@@ -243,8 +246,9 @@ export function search(memDir, query, { k = 3, includeOutdated = false } = {}) {
 }
 
 /** Render candidates in the same shape as the Python implementation. */
-export function renderSearch(query, hits) {
-  const head = `query: ${query}  (local retrieval, no API call, ${hits.length} candidate(s))`
+export function renderSearch(query, hits, via = 'keyword') {
+  const how = via === 'keyword' ? 'local retrieval, no API call' : `semantic retrieval, via ${via}`
+  const head = `query: ${query}  (${how}, ${hits.length} candidate(s))`
   if (!hits.length) return head + '\nno relevant memory'
   const blocks = hits.map((h, i) => {
     const d = h.doc
@@ -523,7 +527,7 @@ function argOf(argv, name, dflt = '') {
 }
 const flagOn = (argv, name) => argv.includes('--' + name)
 
-export function main(argv = process.argv.slice(2)) {
+export async function main(argv = process.argv.slice(2)) {
   // `--dir` may appear anywhere on the command line; pull it out before dispatching.
   const dirFlag = argOf(argv, 'dir', '')
   const cleaned = []
@@ -595,8 +599,33 @@ export function main(argv = process.argv.slice(2)) {
   if (cmd === 'search') {
     const q = rest.filter((a) => !a.startsWith('-'))[0] || ''
     const shortK = argv.indexOf('-k') >= 0 ? argv[argv.indexOf('-k') + 1] : ''
-    const hits = search(memDir, q, { k: Number(shortK || argOf(argv, 'k', '3')) || 3, includeOutdated: flagOn(argv, 'include-outdated') })
-    out(renderSearch(q, hits))
+    const k = Number(shortK || argOf(argv, 'k', '3')) || 3
+    const includeOutdated = flagOn(argv, 'include-outdated')
+    let hits = search(memDir, q, { k, includeOutdated })
+    let via = 'keyword'
+    if (flagOn(argv, 'semantic')) {
+      const cfg = semanticConfig(memDir)
+      if (!hasApiKey(cfg)) {
+        out('(no API key — MEMORY_API_KEY or ~/.mem_api_key — falling back to keyword)')
+      } else {
+        try {
+          const terms = tokenize(q)
+          const docs = [...loadDocs(memDir).values()]
+          const sem = await semanticSearch(memDir, q, { k, docs, cfg })
+          hits = sem.map((h) => ({
+            doc: h.doc,
+            score: h.score,
+            via: h.via,
+            lines: hitLines(h.doc, terms),
+            snippet: snippetOf(h.doc, terms),
+          }))
+          via = hits.length ? (hits[0].via || 'semantic') : 'semantic'
+        } catch (e) {
+          out(`(semantic unavailable: ${e?.message ?? e} — falling back to keyword)`)
+        }
+      }
+    }
+    out(renderSearch(q, hits, via))
     return 0
   }
   if (cmd === 'show') {
@@ -628,6 +657,16 @@ export function main(argv = process.argv.slice(2)) {
   if (cmd === 'reindex') {
     const r = reindex(memDir)
     out(`done: ${r.total} file(s), ${r.indexAdded} index line(s) added`)
+    if (flagOn(argv, 'vectors')) {
+      const cfg = semanticConfig(memDir)
+      if (!hasApiKey(cfg)) { out('vectors: skipped (no API key)'); return 0 }
+      try {
+        const v = await buildVectors(memDir, [...loadDocs(memDir).values()], cfg)
+        out(`vectors: ${v.embedded} embedded, ${v.reused} reused, ${v.total} total (${cfg.embedModel})`)
+      } catch (e) {
+        out('vectors: failed — ' + String(e?.message ?? e))
+      }
+    }
     return 0
   }
   if (cmd === 'doctor') {
@@ -642,6 +681,12 @@ export function main(argv = process.argv.slice(2)) {
     out(`memory-kit ${VERSION} (profile ${s.profile}): ${s.files} memory file(s), ${s.indexEntries} index entr(y/ies)`)
     out('types: ' + Object.entries(s.byType).map(([k, v]) => `${k}=${v}`).join(' '))
     out('status: ' + Object.entries(s.byStatus).map(([k, v]) => `${k}=${v}`).join(' '))
+    const cfg = semanticConfig(memDir)
+    const cache = loadVectorCache(memDir)
+    const cached = Object.keys(cache.items || {}).length
+    out(cfg.key
+      ? `semantic: key ok · ${cfg.embedModel} + ${cfg.rerankModel} · cached vectors ${cached}/${s.files}`
+      : 'semantic: no API key (keyword only)')
     return 0
   }
   if (cmd === 'outdated') {
@@ -658,4 +703,8 @@ export function main(argv = process.argv.slice(2)) {
 const isMain = (() => {
   try { return import.meta.url === pathToFileURL(process.argv[1]).href } catch { return false }
 })()
-if (isMain) process.exitCode = main()
+if (isMain) {
+  main()
+    .then((code) => { process.exitCode = code })
+    .catch((e) => { console.error(String(e?.stack ?? e)); process.exitCode = 1 })
+}

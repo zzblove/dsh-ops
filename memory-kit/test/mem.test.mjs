@@ -213,6 +213,78 @@ const fresh = () => { const d = mk(); initProject(d); return d }
   ok(zhDays.length === 1 && zhDays[0].picked === 1 && zhDays[0].skipped === 1, 'Chinese statuses not classified: ' + JSON.stringify(zhDays.map((d) => [d.picked, d.skipped])))
 }
 
+// 12. semantic layer (embeddings + rerank) against a fake OpenAI-compatible provider
+{
+  const { createServer } = await import('node:http')
+  const sem = await import('../scripts/semantic.mjs')
+  const d = fresh()
+  addEntry(d, { type: 'fact', title: 'OnlyFans 产业链调查', summary: '长视频调查', body: '影视飓风拍的产业链调查，采访创作者和代聊公司。' })
+  addEntry(d, { type: 'fact', title: '折叠屏测评', summary: '硬件测评', body: '何同学的折叠屏测评，测了折痕和铰链。' })
+
+  let embedInputs = 0
+  let rerankCalls = 0
+  const vec = (t) => {
+    const v = new Array(16).fill(0)
+    for (const ch of String(t)) v[ch.codePointAt(0) % 16] += 1
+    const n = Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1
+    return v.map((x) => x / n)
+  }
+  const overlap = (q, doc) => {
+    let n = 0
+    const s = String(doc)
+    for (let i = 0; i + 1 < q.length; i++) if (s.includes(q.slice(i, i + 2))) n++
+    return Math.min(0.99, n / 12)
+  }
+  const srv = createServer((req, res) => {
+    let body = ''
+    req.on('data', (c) => { body += c })
+    req.on('end', () => {
+      let j = {}
+      try { j = JSON.parse(body || '{}') } catch { /* ignore */ }
+      res.setHeader('content-type', 'application/json')
+      if (req.url.endsWith('/embeddings')) {
+        const inputs = Array.isArray(j.input) ? j.input : [j.input]
+        embedInputs += inputs.length
+        res.end(JSON.stringify({ data: inputs.map((t, i) => ({ index: i, embedding: vec(t) })) }))
+      } else if (req.url.endsWith('/rerank')) {
+        rerankCalls++
+        const q = String(j.query || '')
+        const docs = Array.isArray(j.documents) ? j.documents : []
+        res.end(JSON.stringify({ results: docs.map((t, i) => ({ index: i, relevance_score: overlap(q, t) })) }))
+      } else { res.statusCode = 404; res.end('{}') }
+    })
+  })
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r))
+  const baseUrl = `http://127.0.0.1:${srv.address().port}`
+  const cfg = { key: 'test-key', baseUrl, embedModel: 'fake-embed', rerankModel: 'fake-rerank', timeoutMs: 5000 }
+
+  const docs = [...loadDocs(d).values()]
+  const hits = await sem.semanticSearch(d, '成人平台 长视频', { k: 2, docs, cfg })
+  ok(hits.length === 2, 'semantic search returned ' + hits.length + ' hits')
+  ok(hits[0].doc.title.includes('OnlyFans'), 'semantic ranking picked the wrong top hit: ' + hits[0].doc.title)
+  ok(hits.every((h) => h.via === 'rerank'), 'hits should be marked as reranked')
+  ok(embedInputs === 3 && rerankCalls === 1, `unexpected provider calls embed=${embedInputs} rerank=${rerankCalls}`)
+  ok(existsSync(join(d, 'memory', sem.VECTORS_FILE)), 'vector cache not written')
+
+  embedInputs = 0
+  await sem.semanticSearch(d, '折叠屏', { k: 1, docs, cfg })
+  ok(embedInputs === 1, 'vectors were not reused from cache (embedded ' + embedInputs + ' inputs)')
+
+  // provider down → typed error so callers can fall back to keyword search
+  await new Promise((r) => srv.close(r))
+  let typed = false
+  try { await sem.semanticSearch(d, 'x', { docs, cfg }) } catch (e) { typed = e instanceof sem.SemanticUnavailable }
+  ok(typed, 'provider failure should raise SemanticUnavailable')
+
+  // no key → NO_KEY, and the keyword path still works (MEMORY_HOME isolates us from a real ~/.mem_api_key)
+  const noKey = sem.semanticConfig(d, { MEMORY_API_KEY: '', MEMORY_HOME: mk('nokey-'), MEMORY_BASE_URL: baseUrl })
+  ok(!sem.hasApiKey(noKey), 'missing key should be detected')
+  let code = ''
+  try { await sem.semanticSearch(d, 'x', { docs, cfg: noKey }) } catch (e) { code = e.code }
+  ok(code === 'NO_KEY', 'missing key should raise NO_KEY, got ' + code)
+  ok(search(d, '折叠屏', { k: 1 }).length === 1, 'keyword fallback stopped working')
+}
+
 function throws(fn) {
   try { fn(); return false } catch { return true }
 }

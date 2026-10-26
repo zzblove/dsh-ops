@@ -36,6 +36,23 @@ memory-kit/
 └─ .gitignore                  忽略 .index.json / .write.lock
 ```
 
+## 语义检索（可选）
+
+关键词检索仍是默认与兜底。需要"换个说法也想得起来"时开语义路径：
+
+```console
+node memory-kit/scripts/mem.js reindex --vectors        # 用 BAAI/bge-m3 建向量
+node memory-kit/scripts/mem.js search "长视频 产业链" --semantic
+```
+
+- 向量缓存在 `memory/.index.vectors.json`，按内容哈希失效 —— 只有改过的条目才重新嵌入；
+- `search --semantic` 先取余弦 top-20，再用 `BAAI/bge-reranker-v2-m3` 重排；
+- **任何**服务商问题（没 key / HTTP 错误 / 超时）都会退回关键词检索，不会把一轮弄挂；
+- key 只从 `MEMORY_API_KEY`、`<root>/scripts/.mem_api_key` 或 `~/.mem_api_key` 读，**不写进**配置、日志和提示词；
+  `MEMORY_BASE_URL` / `MEMORY_EMBED_MODEL` / `MEMORY_RERANK_MODEL` 可覆盖默认（SiliconFlow + bge-m3 + bge-reranker-v2-m3），
+  `MEMORY_HOME` 用来隔离 key 的查找位置；
+- `stats` 会显示"有没有 key、缓存了多少向量"。
+
 ## 目录档案（profile）
 
 分类是 `init` 时选的**档案**，记在 `memory/.profile.json` 里；之后每条命令自动读它，

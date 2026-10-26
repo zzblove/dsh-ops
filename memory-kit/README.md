@@ -36,6 +36,24 @@ A memory project itself is just:
 └─ .gitignore                  ignores .index.json / .write.lock
 ```
 
+## Semantic retrieval (optional)
+
+Keyword search stays the default and the fallback. A semantic path is available when recall matters
+more than exact words:
+
+```console
+node memory-kit/scripts/mem.js reindex --vectors        # embed entries (BAAI/bge-m3)
+node memory-kit/scripts/mem.js search "长视频 产业链" --semantic
+```
+
+- vectors are cached in `memory/.index.vectors.json`, keyed by content hash — only changed entries re-embed;
+- `search --semantic` takes the cosine top-20 and reranks it with `BAAI/bge-reranker-v2-m3`;
+- **any** provider problem (missing key, HTTP error, timeout) falls back to keyword search — a round never breaks;
+- the key is read from `MEMORY_API_KEY`, `<root>/scripts/.mem_api_key` or `~/.mem_api_key` and never enters
+  config, logs or prompts. `MEMORY_BASE_URL` / `MEMORY_EMBED_MODEL` / `MEMORY_RERANK_MODEL` override the
+  defaults (SiliconFlow + bge-m3 + bge-reranker-v2-m3); `MEMORY_HOME` isolates the key lookup;
+- `stats` reports whether a key is present and how many vectors are cached.
+
 ## Directory profiles
 
 The directory taxonomy is a **profile** chosen at `init` time and recorded in `memory/.profile.json`;
